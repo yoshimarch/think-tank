@@ -1,0 +1,25 @@
+# GitHub Pages用設定
+
+# カスタムドメインを使用する場合（任意）
+# your-domain.com
+
+# 404ページ用の設定
+permalink: pretty
+
+# Jekyll設定（GitHub Pagesのデフォルト）
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+  
+# Markdownの設定
+markdown: kramdown
+highlighter: rouge
+
+# 除外ファイル
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+  - node_modules/
+  - vendor/
+  - .github/

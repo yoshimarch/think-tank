@@ -1,0 +1,202 @@
+name: Update Links from Issues
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  update-links:
+    if: contains(github.event.issue.title, '[ADD LINK]')
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Parse issue and update links.json
+      env:
+        ISSUE_TITLE: ${{ github.event.issue.title }}
+        ISSUE_BODY: ${{ github.event.issue.body }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
+      run: |
+        node << 'EOF'
+        const fs = require('fs');
+        const path = require('path');
+        
+        // 環境変数から Issue データを取得
+        const issueTitle = process.env.ISSUE_TITLE;
+        const issueBody = process.env.ISSUE_BODY;
+        const issueNumber = process.env.ISSUE_NUMBER;
+        
+        console.log('Processing issue:', issueTitle);
+        
+        try {
+          // タイトルからリンクタイトルを抽出
+          const titleMatch = issueTitle.match(/\[ADD LINK\]\s*(.+)/);
+          if (!titleMatch) {
+            throw new Error('Invalid issue title format');
+          }
+          const linkTitle = titleMatch[1].trim();
+          
+          // Issue本文からURLとハッシュタグを解析
+          const urlMatch = issueBody.match(/URL:\s*(https?:\/\/[^\s\n]+)/i);
+          const hashtagsMatch = issueBody.match(/ハッシュタグ:\s*([^\n]+)/i);
+          
+          if (!urlMatch) {
+            throw new Error('URL not found in issue body');
+          }
+          
+          const url = urlMatch[1].trim();
+          const hashtagsStr = hashtagsMatch ? hashtagsMatch[1].trim() : '';
+          const hashtags = hashtagsStr ? hashtagsStr.split(/[,、]\s*/).map(tag => tag.trim()).filter(tag => tag) : [];
+          
+          // 新しいリンクオブジェクトを作成
+          const newLink = {
+            id: Date.now().toString(),
+            title: linkTitle,
+            url: url,
+            hashtags: hashtags,
+            created_at: new Date().toISOString()
+          };
+          
+          console.log('New link object:', JSON.stringify(newLink, null, 2));
+          
+          // 既存のlinks.jsonファイルを読み込み
+          const linksPath = path.join('data', 'links.json');
+          let links = [];
+          
+          if (fs.existsSync(linksPath)) {
+            const data = fs.readFileSync(linksPath, 'utf8');
+            links = JSON.parse(data);
+          }
+          
+          // 重複チェック（同一URL）
+          const isDuplicate = links.some(link => link.url === newLink.url);
+          if (isDuplicate) {
+            console.log('Duplicate URL detected, skipping...');
+            process.exit(0);
+          }
+          
+          // 新しいリンクを先頭に追加
+          links.unshift(newLink);
+          
+          // ファイルに書き込み
+          fs.writeFileSync(linksPath, JSON.stringify(links, null, 2));
+          
+          console.log('Successfully updated links.json');
+          console.log('Total links:', links.length);
+          
+          // 成功メッセージをファイルに書き出し（後のステップで使用）
+          fs.writeFileSync('update_result.txt', 'SUCCESS');
+          
+        } catch (error) {
+          console.error('Error processing issue:', error.message);
+          fs.writeFileSync('update_result.txt', 'ERROR: ' + error.message);
+          process.exit(1);
+        }
+        EOF
+    
+    - name: Commit changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add data/links.json
+        
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Add new link from issue #${{ github.event.issue.number }}"
+          git push
+        fi
+    
+    - name: Comment on issue - Success
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          let message = '';
+          
+          try {
+            const result = fs.readFileSync('update_result.txt', 'utf8');
+            if (result.startsWith('SUCCESS')) {
+              message = `✅ **リンクが正常に追加されました！**
+              
+              新しいリンクは [Think-Tank](https://github.com/${{ github.repository_owner }}/${{ github.event.repository.name }}) で確認できます。
+              
+              🎉 ご投稿ありがとうございました！`;
+            } else {
+              message = `❌ **エラーが発生しました**
+              
+              ${result}
+              
+              フォーマットを確認して再度お試しください。`;
+            }
+          } catch (e) {
+            message = '❌ **処理中にエラーが発生しました**';
+          }
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: message
+          });
+    
+    - name: Close issue on success
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          try {
+            const result = fs.readFileSync('update_result.txt', 'utf8');
+            if (result.startsWith('SUCCESS')) {
+              github.rest.issues.update({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'closed'
+              });
+            }
+          } catch (e) {
+            console.log('Could not close issue:', e.message);
+          }
+    
+    - name: Add labels
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          let labels = [];
+          
+          try {
+            const result = fs.readFileSync('update_result.txt', 'utf8');
+            if (result.startsWith('SUCCESS')) {
+              labels = ['✅ 追加完了'];
+            } else {
+              labels = ['❌ エラー'];
+            }
+          } catch (e) {
+            labels = ['❌ エラー'];
+          }
+          
+          if (labels.length > 0) {
+            github.rest.issues.addLabels({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: labels
+            });
+          }
