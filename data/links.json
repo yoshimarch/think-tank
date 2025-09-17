@@ -1,5 +1,19 @@
 [
   {
+    "id": "1758110057364",
+    "title": "円の多角形けんきゅう記録アプリ",
+    "url": "https://yoshimarch.github.io/cercletry/",
+    "hashtags": [
+      "円の面積",
+      "内接多角形",
+      "外接多角形",
+      "円周率",
+      "円と多角形",
+      "探究"
+    ],
+    "created_at": "2025-09-17T11:54:17.364Z"
+  },
+  {
     "id": "1758109927073",
     "title": "グラフ作成支援ツール（せんをつくろう）",
     "url": "https://yoshimarch.github.io/graph-playground/",
